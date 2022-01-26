@@ -51,18 +51,17 @@ def finite_difference_gradient(func: Callable[[tf.Tensor], tf.Tensor], x: tf.Ten
 
 
 def generate_inputs():
-    labels_len = tf.convert_to_tensor([40])
-    inputs_len = tf.convert_to_tensor([160])
-    vocab_size = 780
+    labels_len = tf.convert_to_tensor([6])
+    inputs_len = tf.convert_to_tensor([10])
+    vocab_size = 4
     batch_size = 1
-    labels = tf.convert_to_tensor([[1, 2, 3, 4, 5, 690, 7, 8,9,10,11,12,23,24,515,16,17,18,190,20,1,2,3,4,5,6,7,8,9,10,11,12,13,140,15,26,17,18,19,20]])
+    labels = tf.convert_to_tensor([[2, 1, 3, 2, 3, 2, 0, 0]])
 
-    max_u = 40
-    max_t = 160
+    max_u = 8
+    max_t = 12
 
     logits = tf.random.uniform(shape=[batch_size, max_t, max_u + 1, vocab_size], minval=0.1, maxval=0.8, seed=42)
     return logits, labels, labels_len, inputs_len
-
 
 class TestRnntLoss(unittest.TestCase):
     def assert_tensors_almost_equal(self, first: tf.Tensor, second: tf.Tensor, places: Optional[int]):
