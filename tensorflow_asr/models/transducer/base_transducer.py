@@ -196,17 +196,12 @@ class Transducer(BaseModel):
         inputs, y_true = batch
         features, features_lengths = self._copy_input_features(inputs)
         sentences, sentences_lengths, hypotheses = self._get_beam_hypotheses(inputs, y_true)
-
-        blank_slice = tf.ones([tf.shape(sentences)[0], 1], dtype=tf.int32) * self.text_featurizer.blank
-        rnnt_input_sentences = tf.concat([blank_slice, sentences], axis=1)
-        rnnt_inputs = data_util.create_inputs(features,
-                                              features_lengths,
-                                              rnnt_input_sentences,
-                                              sentences_lengths + tf.constant(1))
+        rnnt_inputs = self._prepare_rnnt_input(sentences, sentences_lengths, features, features_lengths)
         ground_truths = data_util.create_labels(sentences, sentences_lengths)
 
         with tf.GradientTape() as tape:
             y_pred = self(rnnt_inputs, training=True)
+            y_pred = self._parse_rnnt_output(y_pred, tf.shape(sentences_lengths))
             loss = self.loss(y_pred, ground_truths, hypotheses)
             if self.use_loss_scale:
                 scaled_loss = self.optimizer.get_scaled_loss(loss)
@@ -234,18 +229,44 @@ class Transducer(BaseModel):
         inputs, y_true = batch
         features, features_lengths = self._copy_input_features(inputs)
         sentences, sentences_lengths, hypotheses = self._get_beam_hypotheses(inputs, y_true)
+        rnnt_inputs = self._prepare_rnnt_input(sentences, sentences_lengths, features, features_lengths)
+        ground_truths = data_util.create_labels(sentences, sentences_lengths)
 
+        y_pred = self(rnnt_inputs, training=False)
+        y_pred = self._parse_rnnt_output(y_pred, tf.shape(sentences_lengths))
+        loss = self.loss(y_pred, ground_truths, hypotheses)
+        self._tfasr_metrics["loss"].update_state(loss)
+        return {m.name: m.result() for m in self.metrics}
+
+    def _parse_rnnt_output(self,
+                           rnnt_output: Dict[str, tf.Tensor],
+                           batch_beam_dim: tf.Tensor
+                           ) -> Dict[str, tf.Tensor]:
+        logits = rnnt_output["logits"]
+        logits_out_dim = tf.concat([batch_beam_dim, tf.shape(logits)[1:]], axis=0)
+        logits = tf.reshape(logits, logits_out_dim)
+        logits_length = rnnt_output["logits_length"]
+        logits_length = tf.reshape(logits_length, batch_beam_dim)
+
+        return data_util.create_logits(logits=logits, logits_length=logits_length)
+
+
+    def _prepare_rnnt_input(self,
+                            sentences: tf.Tensor,
+                            sentences_lengths: tf.Tensor,
+                            features: tf.Tensor,
+                            features_lengths: tf.Tensor
+                            ) -> Dict[str, tf.Tensor]:
+        sentences = tf.reshape(sentences, [-1, tf.shape(sentences)[2]])
+        sentences_lengths = tf.reshape(sentences_lengths, [-1])
         blank_slice = tf.ones([tf.shape(sentences)[0], 1], dtype=tf.int32) * self.text_featurizer.blank
         rnnt_input_sentences = tf.concat([blank_slice, sentences], axis=1)
         rnnt_inputs = data_util.create_inputs(features,
                                               features_lengths,
                                               rnnt_input_sentences,
                                               sentences_lengths + tf.constant(1))
-        ground_truths = data_util.create_labels(sentences, sentences_lengths)
-        y_pred = self(rnnt_inputs, training=True)
-        loss = self.loss(y_pred, ground_truths, hypotheses)
-        self._tfasr_metrics["loss"].update_state(loss)
-        return {m.name: m.result() for m in self.metrics}
+
+        return rnnt_inputs
 
     def _copy_input_features(self,
                              inputs: Dict[str, tf.Tensor],
@@ -277,21 +298,25 @@ class Transducer(BaseModel):
                                                                     return_tokens=True,
                                                                     return_topk=True,
                                                                     return_log_probas=True)
-        transcriptions = tf.reshape(transcriptions, [-1])
-        log_probas = tf.reshape(log_probas, [-1])
-        sentences = tf.reshape(sentences, [-1, tf.shape(sentences)[2]])
+
+        batch_beam_dims = tf.shape(log_probas)
+
         labels_transcriptions = tf.expand_dims(labels_transcriptions, axis=1)
         labels_transcriptions = tf.tile(labels_transcriptions, [1, self._beam_size])
-        labels_transcriptions = tf.reshape(labels_transcriptions, [-1])
 
         hypotheses = data_util.create_hypotheses(sentences=transcriptions,
                                                  log_probas=log_probas,
                                                  labels=labels_transcriptions)
 
+        max_length = tf.shape(sentences)[2]
+        sentences = tf.reshape(sentences, [-1, tf.shape(sentences)[2]])
+
         nonblank_tokens = tf.math.not_equal(sentences, self.text_featurizer.blank)
         nonblank_tokens = tf.cast(nonblank_tokens, dtype=tf.int32)
+
         sentences_length = tf.reduce_sum(nonblank_tokens, axis=1)
-        max_length = tf.reduce_max(sentences_length)
+        sentences_length = tf.reshape(sentences_length, batch_beam_dims)
+        # max_length = tf.reduce_max(sentences_length)
 
         def remove_zeros_and_pad(input: tf.Tensor):
             nonblank = tf.where(input != tf.constant(self.text_featurizer.blank))
@@ -301,6 +326,7 @@ class Transducer(BaseModel):
             return tf.pad(nonblank_tokens, [[0, max_length - nonblank_count]])
 
         sentences = tf.map_fn(remove_zeros_and_pad, sentences)
+        sentences = tf.reshape(sentences, tf.concat([batch_beam_dims, [-1]], axis=0))
 
         return sentences, sentences_length, hypotheses
     # -------------------------------- INFERENCES -------------------------------------

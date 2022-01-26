@@ -38,21 +38,23 @@ def generate_inputs():
     max_u = 4
     max_t = 6
     vocab_size = 4
-    logits = tf.random.uniform(shape=[batch_size, max_t, max_u, vocab_size],
+    beam_size = 2
+    logits = tf.random.uniform(shape=[batch_size, beam_size, max_t, max_u, vocab_size],
                                    minval=0.1, maxval=0.8, seed=42)
-    risk_vals = tf.random.uniform([batch_size], minval=0.0, maxval=0.99, seed=42)
-    hypotheses_log_probas = tf.math.log(tf.random.uniform([batch_size], minval=0.0, maxval=0.99, seed=42))
+    risk_vals = tf.random.uniform([batch_size, beam_size], minval=0.0, maxval=0.99, seed=42)
+    hypotheses_log_probas = tf.math.log(tf.random.uniform([batch_size, beam_size], minval=0.0, maxval=0.99, seed=42))
 
     labels = []
-    labels_length = tf.random.uniform([1], minval=max_u-1, maxval=max_u, dtype=tf.int32)
+    labels_length = tf.random.uniform([beam_size], minval=max_u-1, maxval=max_u, dtype=tf.int32)
     labels_length = tf.concat([labels_length, tf.random.uniform([batch_size-1], minval=4, maxval=max_u, dtype=tf.int32)], axis=0)
     maxlen = tf.math.reduce_max(labels_length)
-    for i in range(batch_size):
+    for i in range(2):
         elem = tf.random.uniform([labels_length[i]], minval=1, maxval=vocab_size, dtype=tf.int32)
         elem = tf.pad(elem, [[0, maxlen - labels_length[i]]])
         labels.append(elem)
     labels = tf.stack(labels)
-    logits_length = tf.constant([max_t] * batch_size)
+    labels = tf.expand_dims(labels, axis=0)
+    logits_length = tf.constant([max_t, max_t] * batch_size)
 
     return logits, risk_vals, hypotheses_log_probas, labels, logits_length, labels_length
 
