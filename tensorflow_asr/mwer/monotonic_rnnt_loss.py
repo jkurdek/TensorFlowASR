@@ -1,4 +1,4 @@
-from functools import cached_property
+from functools import lru_cache
 import tensorflow as tf
 
 logger = tf.get_logger()
@@ -77,7 +77,8 @@ class MonotonicRnntData:
     def backprop(self, loss: tf.Tensor) -> tf.Tensor:
         return tf.reshape(loss, shape=[-1, 1, 1, 1]) * self.grads
 
-    @cached_property
+    @property
+    @lru_cache()
     def grads(self) -> tf.Tensor:
         """Computes gradients w.r.t logits.
 
@@ -95,7 +96,8 @@ class MonotonicRnntData:
 
         return grads_logits
 
-    @cached_property
+    @property
+    @lru_cache()
     def grads_truth(self) -> tf.Tensor:
         """Computes part of the RHS corresponding to k = y_u+1
 
@@ -119,7 +121,8 @@ class MonotonicRnntData:
 
         return grads_truth
 
-    @cached_property
+    @property
+    @lru_cache()
     def grads_blank(self) -> tf.Tensor:
         """Computes part of the RHS corresponding to k = blank
 
@@ -143,7 +146,8 @@ class MonotonicRnntData:
 
         return tf.expand_dims(grads_blank, axis=3)
 
-    @cached_property
+    @property
+    @lru_cache()
     def alpha(self) -> tf.Tensor:
         """Computes the forward alpha variable
 
@@ -180,7 +184,8 @@ class MonotonicRnntData:
 
         return alpha
 
-    @cached_property
+    @property
+    @lru_cache()
     def beta(self) -> tf.Tensor:
         """Computes the backward beta variable.
 
@@ -230,7 +235,8 @@ class MonotonicRnntData:
 
         return beta
 
-    @cached_property
+    @property
+    @lru_cache()
     def log_loss(self) -> tf.Tensor:
         """Log loss defined by ln P(y*|x)."""
         return self.beta[:, 0, 0]
@@ -256,11 +262,13 @@ class MonotonicRnntData:
 
         return label_mask * input_mask
 
-    @cached_property
+    @property
+    @lru_cache()
     def last_elem_indices(self) -> tf.Tensor:
         return tf.stack([self._logit_length - 1, self._label_length], axis=1)
 
-    @cached_property
+    @property
+    @lru_cache()
     def truth_probs(self) -> tf.Tensor:
         """Log probabilites of obtaining symbol y_u+1 at each encoder step t and decoder step u.
 
@@ -268,7 +276,8 @@ class MonotonicRnntData:
         """
         return tf.reduce_sum(tf.multiply(self.log_probs[:, :, :-1, :], self.one_hot_labels), axis=-1)
 
-    @cached_property
+    @property
+    @lru_cache()
     def blank_probs(self) -> tf.Tensor:
         """Log probabilites of obtaining a blank symbol at each encoder and decoder step.
 
@@ -276,30 +285,36 @@ class MonotonicRnntData:
         """
         return self.log_probs[:, :, :, 0]
 
-    @cached_property
+    @property
+    @lru_cache()
     def log_probs(self) -> tf.Tensor:
         return tf.nn.log_softmax(self._logits)
 
-    @cached_property
+    @property
+    @lru_cache()
     def one_hot_labels(self) -> tf.Tensor:
         return tf.one_hot(
             tf.tile(tf.expand_dims(self._labels, axis=1), multiples=[1, self.input_max_len, 1]),
             depth=self.vocab_size,
         )
 
-    @cached_property
+    @property
+    @lru_cache()
     def batch_size(self) -> tf.Tensor:
         return tf.shape(self._logits)[0]
 
-    @cached_property
+    @property
+    @lru_cache()
     def input_max_len(self) -> tf.Tensor:
         return tf.shape(self._logits)[1]
 
-    @cached_property
+    @property
+    @lru_cache()
     def target_max_len(self) -> tf.Tensor:
         return tf.shape(self._logits)[2]
 
-    @cached_property
+    @property
+    @lru_cache()
     def vocab_size(self) -> tf.Tensor:
         return tf.shape(self._logits)[3]
 

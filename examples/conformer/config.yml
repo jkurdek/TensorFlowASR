@@ -24,8 +24,7 @@ speech_config:
   normalize_per_frame: False
 
 decoder_config:
-  vocabulary: ./predefined_checkpoints/pretrained-subword-conformer/conformer.subwords
-#  vocabulary: ./vocabularies/librispeech/spm_512.vocab
+  vocabulary: ./vocabularies/librispeech/spm_512.model
 #  subwords: ./vocabularies/librispeech/spm_512
   target_vocab_size: 8000
   max_subword_length: 10
@@ -78,9 +77,9 @@ learning_config:
           num_masks: 1
           mask_factor: 27
     data_paths:
-      - /home/frunc/data/LibriSpeech/test_transcriptions/test.tsv
-#      - /home/frunc/data/LibriSpeech/transcriptions/dev.tsv
-    tfrecords_dir: /home/frunc/data/LibriSpeech/tfrecords
+      - /data/LibriSpeech/test_transcriptions/test.tsv
+#      - /data/LibriSpeech/transcriptions/dev.tsv
+    # tfrecords_dir: /data/LibriSpeech/tfrecords
     shuffle: True
     cache: False
     buffer_size: 100
@@ -90,9 +89,9 @@ learning_config:
   eval_dataset_config:
     use_tf: True
     data_paths:
-      - /home/frunc/data/LibriSpeech/test_transcriptions/test.tsv
-#      - /home/frunc/data/LibriSpeech/transcriptions/dev.tsv
-    tfrecords_dir: /home/frunc/data/LibriSpeech/tfrecords
+      - /data/LibriSpeech/test_transcriptions/test.tsv
+#      - /data/LibriSpeech/transcriptions/dev.tsv
+    # tfrecords_dir: /data/LibriSpeech/tfrecords
     shuffle: False
     cache: False
     buffer_size: 100
@@ -102,8 +101,8 @@ learning_config:
   test_dataset_config:
     use_tf: True
     data_paths:
-      - /home/frunc/data/LibriSpeech/test_transcriptions/test.tsv
-#      - /home/frunc/data/LibriSpeech/transcriptions/dev.tsv
+      - /data/LibriSpeech/test_transcriptions/test.tsv
+#      - /data/LibriSpeech/transcriptions/dev.tsv
     tfrecords_dir: null
     shuffle: False
     cache: False

@@ -1,11 +1,29 @@
 import unittest
-from typing import Optional, Callable
 import tensorflow as tf
 import numpy as np
 import os
+from typing import Optional, Callable
+
 from tensorflow_asr.mwer.monotonic_rnnt_loss import monotonic_rnnt_loss, MonotonicRnntData
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+#TO-DO:
+#1. better tests generator
+#2. better tests
+#3. performance tests refactor
+
+# @tf.function
+# def warp_loss(logits, labels, label_lengths, logit_lengths):
+#    log_probs = tf.nn.log_softmax(logits, axis=3)
+#    loss = warprnnt_tensorflow.rnnt_loss(
+#        log_probs, labels, logit_lengths, label_lengths)
+#    return loss
+
+# @tf.function
+# def tf_loss(logits, labels, label_lengths, logit_lengths):
+#     loss = monotonic_rnnt_loss(logits, labels, label_lengths, logit_lengths)
+#     return loss
 
 
 def finite_difference_gradient(func: Callable[[tf.Tensor], tf.Tensor], x: tf.Tensor, epsilon: float) -> tf.Tensor:
@@ -33,14 +51,14 @@ def finite_difference_gradient(func: Callable[[tf.Tensor], tf.Tensor], x: tf.Ten
 
 
 def generate_inputs():
-    labels_len = tf.convert_to_tensor([6])
-    inputs_len = tf.convert_to_tensor([10])
-    vocab_size = 4
+    labels_len = tf.convert_to_tensor([40])
+    inputs_len = tf.convert_to_tensor([160])
+    vocab_size = 780
     batch_size = 1
-    labels = tf.convert_to_tensor([[2, 1, 3, 2, 3, 2, 0, 0]])
+    labels = tf.convert_to_tensor([[1, 2, 3, 4, 5, 690, 7, 8,9,10,11,12,23,24,515,16,17,18,190,20,1,2,3,4,5,6,7,8,9,10,11,12,13,140,15,26,17,18,19,20]])
 
-    max_u = 8
-    max_t = 12
+    max_u = 40
+    max_t = 160
 
     logits = tf.random.uniform(shape=[batch_size, max_t, max_u + 1, vocab_size], minval=0.1, maxval=0.8, seed=42)
     return logits, labels, labels_len, inputs_len
@@ -105,3 +123,29 @@ class TestRnntLoss(unittest.TestCase):
         loss_data = MonotonicRnntData(logits, labels, inputs_len, labels_len)
 
         self.assert_tensors_almost_equal(loss_data.log_loss, expected_loss, places=6)
+    
+    # def test_perfomance(self):
+
+    #     logits, labels, labels_len, inputs_len = generate_inputs()
+    #     loss_data = MonotonicRnntData(logits, labels, inputs_len, labels_len)
+    #     x = loss_data.log_loss
+
+    #     tf_data = []
+    #     warp_data = []
+    #     labels_32, label_lengths_32, logit_lengths_32 = tf.dtypes.cast(labels, tf.int32), tf.dtypes.cast(labels_len, tf.int32), tf.dtypes.cast(inputs_len, tf.int32)
+
+    #     st = time.time()
+    #     warp_loss_val = warp_loss(logits, labels_32, label_lengths_32, logit_lengths_32)
+    #     warp_time = time.time()-st
+
+    #     for _ in range(10):
+    #         loss_data = tf_loss(logits, labels, inputs_len, labels_len)
+
+
+    #     st = time.time()
+    #     loss_data = tf_loss(logits, labels, inputs_len, labels_len)
+    #     tf_time = time.time()-st
+    #     # print(warp_data)
+    #     print(tf_time)
+
+    #     print('hawk',warp_time, 'tf', tf_time)
