@@ -2,15 +2,13 @@ import tensorflow as tf
 from typing import Callable, Dict
 from tensorflow_asr.mwer.monotonic_rnnt_loss import monotonic_rnnt_loss
 from functools import cached_property
-
+import fastwer
 
 class MWERLoss:
     def __init__(self,
-                 risk_obj: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
                  global_batch_size=None,
                  blank=0,
                  name=None):
-        self._risk_obj = risk_obj
         self._global_batch_size = global_batch_size
         self._blank = blank
         self._name = name
@@ -28,7 +26,8 @@ class MWERLoss:
         sentences = tf.reshape(sentences, [-1])
         ground_truths = tf.reshape(ground_truths, [-1])
 
-        risk_vals = tf.py_function(self._risk_obj, [sentences, ground_truths], Tout=tf.float32)
+        with tf.name_scope('risk_calculator'):
+            risk_vals = tf.py_function(self._wer, [sentences, ground_truths], Tout=tf.float32)
         risk_vals = tf.reshape(risk_vals, batch_beam_dim)
 
         logits = prediction["logits"]
@@ -50,6 +49,16 @@ class MWERLoss:
         return tf.nn.compute_average_loss(loss, global_batch_size=self._global_batch_size)
 
 
+
+    def _wer(self, hypothesis: tf.Tensor, truth: tf.Tensor) -> tf.Tensor:
+        hypothesis_arr = [s.numpy() for s in tf.unstack(hypothesis)]
+        truth_arr = [s.numpy() for s in tf.unstack(truth)]
+        wers = list(map(fastwer.score_sent, hypothesis_arr, truth_arr))
+
+        return tf.constant(wers)
+
+
+
 @tf.function(experimental_relax_shapes=True)
 def mwer_loss(
         logits: tf.Tensor,  # [batch_size, beam_size, T, U, V]
@@ -60,21 +69,22 @@ def mwer_loss(
         label_length: tf.Tensor,  # [batch_size, beam_size]
         blank: int = 0,
 ):
-    @tf.custom_gradient
-    def compute_grads(input_logits: tf.Tensor):
-        loss_data = MWERLossData(
-            logits=input_logits,
-            risk_vals=risk_vals,
-            hypotheses_log_probas=hypotheses_log_probas,
-            labels=labels,
-            logit_length=logit_length,
-            label_length=label_length,
-            blank=blank
-        )
+    with tf.name_scope('mwer_loss'):
+        @tf.custom_gradient
+        def compute_grads(input_logits: tf.Tensor):
+            loss_data = MWERLossData(
+                logits=input_logits,
+                risk_vals=risk_vals,
+                hypotheses_log_probas=hypotheses_log_probas,
+                labels=labels,
+                logit_length=logit_length,
+                label_length=label_length,
+                blank=blank
+            )
 
-        return loss_data.loss_value, loss_data.grad
+            return loss_data.loss_value, loss_data.grad
 
-    return compute_grads(logits)
+        return compute_grads(logits)
 
 
 class MWERLossData:

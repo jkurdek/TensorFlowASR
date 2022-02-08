@@ -23,8 +23,8 @@ from tensorflow_asr.featurizers.speech_featurizers import SpeechFeaturizer
 from tensorflow_asr.featurizers.text_featurizers import TextFeaturizer
 from tensorflow_asr.losses.rnnt_loss import RnntLoss
 from tensorflow_asr.mwer.beam_search import BeamSearch
+from tensorflow_asr.mwer.monotonic_rnnt_loss import MonotonicRnntLoss
 from tensorflow_asr.mwer.mwer_loss import MWERLoss
-from tensorflow_asr.mwer.wer import WER
 from tensorflow_asr.utils import data_util, layer_util, math_util, shape_util
 from tensorflow_asr.models.base_model import BaseModel
 
@@ -161,9 +161,10 @@ class Transducer(BaseModel):
             **kwargs,
     ):
         if self._mwer_training:
-            loss = MWERLoss(risk_obj=WER(), blank=blank, global_batch_size=global_batch_size)
+            loss = MWERLoss(blank=blank, global_batch_size=global_batch_size)
         else:
-            loss = RnntLoss(blank=blank, global_batch_size=global_batch_size)
+            loss = MonotonicRnntLoss(blank=blank, global_batch_size=global_batch_size)
+            # loss = RnntLoss(blank=blank, global_batch_size=global_batch_size)
         super().compile(loss=loss, optimizer=optimizer, run_eagerly=run_eagerly, **kwargs)
 
     def call(
