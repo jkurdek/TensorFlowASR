@@ -545,9 +545,10 @@ class SentencePieceFeaturizer(TextFeaturizer):
         with tf.device("/CPU:0"):  # string data is not supported on GPU
 
             def decode(x):
-                if x[0] == self.blank:
-                    x = x[1:]
-                return self.model.decode_ids(x.tolist())
+                x = x.tolist()
+                x = [elem for elem in x if elem != self.blank]
+
+                return self.model.decode_ids(x)
 
             text = tf.map_fn(
                 lambda x: tf.numpy_function(decode, inp=[x], Tout=tf.string),

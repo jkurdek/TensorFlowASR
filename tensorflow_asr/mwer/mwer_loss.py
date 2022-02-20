@@ -1,7 +1,7 @@
 import tensorflow as tf
 from typing import Callable, Dict
 from tensorflow_asr.mwer.monotonic_rnnt_loss import monotonic_rnnt_loss
-from functools import cached_property
+from cached_property import cached_property
 import fastwer
 
 class MWERLoss:
@@ -59,7 +59,8 @@ class MWERLoss:
 
 
 
-@tf.function(experimental_relax_shapes=True)
+# @tf.function(experimental_relax_shapes=True)
+@tf.function
 def mwer_loss(
         logits: tf.Tensor,  # [batch_size, beam_size, T, U, V]
         risk_vals: tf.Tensor,  # [batch_size, beam_size]
@@ -69,22 +70,21 @@ def mwer_loss(
         label_length: tf.Tensor,  # [batch_size, beam_size]
         blank: int = 0,
 ):
-    with tf.name_scope('mwer_loss'):
-        @tf.custom_gradient
-        def compute_grads(input_logits: tf.Tensor):
-            loss_data = MWERLossData(
-                logits=input_logits,
-                risk_vals=risk_vals,
-                hypotheses_log_probas=hypotheses_log_probas,
-                labels=labels,
-                logit_length=logit_length,
-                label_length=label_length,
-                blank=blank
-            )
+    @tf.custom_gradient
+    def compute_grads(input_logits: tf.Tensor):
+        loss_data = MWERLossData(
+            logits=input_logits,
+            risk_vals=risk_vals,
+            hypotheses_log_probas=hypotheses_log_probas,
+            labels=labels,
+            logit_length=logit_length,
+            label_length=label_length,
+            blank=blank
+        )
 
-            return loss_data.loss_value, loss_data.grad
+        return loss_data.loss_value, loss_data.grad
 
-        return compute_grads(logits)
+    return compute_grads(logits)
 
 
 class MWERLossData:
@@ -107,7 +107,7 @@ class MWERLossData:
         self._batch_beam_dim = tf.shape(risk_vals)
 
     def grad(self, init_grad):
-        return [tf.reshape(init_grad, shape=[-1, 1, 1, 1]) * self._get_grads()]
+        return [tf.reshape(init_grad, shape=[-1, 1, 1, 1, 1]) * self._get_grads()]
 
     @cached_property
     def loss_value(self):
@@ -135,5 +135,5 @@ class MWERLossData:
         rhs = tape.gradient(rnn_loss_val, logits)
         grad = tf.reshape(lhs, [-1, 1, 1, 1]) * rhs
         grad = tf.reshape(grad, tf.concat([self._batch_beam_dim, tf.shape(grad)[1:]], axis=0))
-
+        # grad = tf.zeros(tf.shape(self._logits))
         return grad
