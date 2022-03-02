@@ -1,16 +1,14 @@
 import tensorflow as tf
 from typing import Callable, Dict
 from tensorflow_asr.mwer.monotonic_rnnt_loss import monotonic_rnnt_loss
-from functools import cached_property
-
+from cached_property import cached_property
+import fastwer
 
 class MWERLoss:
     def __init__(self,
-                 risk_obj: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
                  global_batch_size=None,
                  blank=0,
                  name=None):
-        self._risk_obj = risk_obj
         self._global_batch_size = global_batch_size
         self._blank = blank
         self._name = name
@@ -28,7 +26,8 @@ class MWERLoss:
         sentences = tf.reshape(sentences, [-1])
         ground_truths = tf.reshape(ground_truths, [-1])
 
-        risk_vals = tf.py_function(self._risk_obj, [sentences, ground_truths], Tout=tf.float32)
+        with tf.name_scope('risk_calculator'):
+            risk_vals = tf.py_function(self._wer, [sentences, ground_truths], Tout=tf.float32)
         risk_vals = tf.reshape(risk_vals, batch_beam_dim)
 
         logits = prediction["logits"]
@@ -50,7 +49,18 @@ class MWERLoss:
         return tf.nn.compute_average_loss(loss, global_batch_size=self._global_batch_size)
 
 
-@tf.function(experimental_relax_shapes=True)
+
+    def _wer(self, hypothesis: tf.Tensor, truth: tf.Tensor) -> tf.Tensor:
+        hypothesis_arr = [s.numpy() for s in tf.unstack(hypothesis)]
+        truth_arr = [s.numpy() for s in tf.unstack(truth)]
+        wers = list(map(fastwer.score_sent, hypothesis_arr, truth_arr))
+
+        return tf.constant(wers)
+
+
+
+# @tf.function(experimental_relax_shapes=True)
+@tf.function
 def mwer_loss(
         logits: tf.Tensor,  # [batch_size, beam_size, T, U, V]
         risk_vals: tf.Tensor,  # [batch_size, beam_size]
@@ -97,7 +107,7 @@ class MWERLossData:
         self._batch_beam_dim = tf.shape(risk_vals)
 
     def grad(self, init_grad):
-        return [tf.reshape(init_grad, shape=[-1, 1, 1, 1]) * self._get_grads()]
+        return [tf.reshape(init_grad, shape=[-1, 1, 1, 1, 1]) * self._get_grads()]
 
     @cached_property
     def loss_value(self):
@@ -125,5 +135,5 @@ class MWERLossData:
         rhs = tape.gradient(rnn_loss_val, logits)
         grad = tf.reshape(lhs, [-1, 1, 1, 1]) * rhs
         grad = tf.reshape(grad, tf.concat([self._batch_beam_dim, tf.shape(grad)[1:]], axis=0))
-
+        # grad = tf.zeros(tf.shape(self._logits))
         return grad

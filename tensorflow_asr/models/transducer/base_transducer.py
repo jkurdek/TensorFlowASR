@@ -23,8 +23,8 @@ from tensorflow_asr.featurizers.speech_featurizers import SpeechFeaturizer
 from tensorflow_asr.featurizers.text_featurizers import TextFeaturizer
 from tensorflow_asr.losses.rnnt_loss import RnntLoss
 from tensorflow_asr.mwer.beam_search import BeamSearch
+from tensorflow_asr.mwer.monotonic_rnnt_loss import MonotonicRnntLoss
 from tensorflow_asr.mwer.mwer_loss import MWERLoss
-from tensorflow_asr.mwer.wer import WER
 from tensorflow_asr.utils import data_util, layer_util, math_util, shape_util
 from tensorflow_asr.models.base_model import BaseModel
 
@@ -161,9 +161,10 @@ class Transducer(BaseModel):
             **kwargs,
     ):
         if self._mwer_training:
-            loss = MWERLoss(risk_obj=WER(), blank=blank, global_batch_size=global_batch_size)
+            self.rnnt_loss = MonotonicRnntLoss(blank=blank, global_batch_size=global_batch_size)
+            loss = MWERLoss(blank=blank, global_batch_size=global_batch_size)
         else:
-            loss = RnntLoss(blank=blank, global_batch_size=global_batch_size)
+            loss = MonotonicRnntLoss(blank=blank, global_batch_size=global_batch_size)
         super().compile(loss=loss, optimizer=optimizer, run_eagerly=run_eagerly, **kwargs)
 
     def call(
@@ -194,15 +195,38 @@ class Transducer(BaseModel):
             return super().train_step(batch)
 
         inputs, y_true = batch
-        features, features_lengths = self._copy_input_features(inputs)
-        sentences, sentences_lengths, hypotheses = self._get_beam_hypotheses(inputs, y_true)
-        rnnt_inputs = self._prepare_rnnt_input(sentences, sentences_lengths, features, features_lengths)
-        ground_truths = data_util.create_labels(sentences, sentences_lengths)
 
         with tf.GradientTape() as tape:
-            y_pred = self(rnnt_inputs, training=True)
-            y_pred = self._parse_rnnt_output(y_pred, tf.shape(sentences_lengths))
-            loss = self.loss(y_pred, ground_truths, hypotheses)
+            # Calculating rnn-t loss
+            encoder_out = self.encoder(inputs["inputs"], training=True)
+            predictor_out = self.predict_net([inputs["predictions"], inputs["predictions_length"]], training=True)
+            logits = self.joint_net([encoder_out, predictor_out], training=True)
+            logits_length = math_util.get_reduced_length(inputs["inputs_length"], self.time_reduction_factor)
+            rnnt_input = data_util.create_logits(logits, logits_length)
+            rnnt_loss = self.rnnt_loss(y_true, rnnt_input)
+
+            # MWER loss
+            with tape.stop_recording():
+                # Calculating top beamsearch paths
+                encoded_length = math_util.get_reduced_length(inputs["inputs_length"], self.time_reduction_factor)
+                sentences, sentences_lengths, hypotheses = self._get_beam_hypotheses(encoder_out,
+                                                                                     encoded_length,
+                                                                                     y_true)
+                ground_truths = data_util.create_labels(sentences, sentences_lengths)
+                predictor_inputs, predictor_lengths = self._prepare_rnnt_input(sentences, sentences_lengths)
+
+            # Calculating the actual loss
+            encoder_out, encoder_out_lengths = self._tile_encoder_out(encoder_out, inputs["inputs_length"])
+            predictor_out = self.predict_net([predictor_inputs, predictor_lengths], training=True)
+            logits = self.joint_net([encoder_out, predictor_out], training=True)
+            logits_length = math_util.get_reduced_length(encoder_out_lengths, self.time_reduction_factor)
+
+            y_pred = self._parse_rnn_output(logits, logits_length, tf.shape(sentences_lengths))
+            mwer_loss = self.loss(y_pred, ground_truths, hypotheses)
+
+            # Interpolating mwer loss with rnnt loss
+            loss = rnnt_loss + mwer_loss
+
             if self.use_loss_scale:
                 scaled_loss = self.optimizer.get_scaled_loss(loss)
         if self.use_loss_scale:
@@ -227,53 +251,61 @@ class Transducer(BaseModel):
             return super().test_step(batch)
 
         inputs, y_true = batch
-        features, features_lengths = self._copy_input_features(inputs)
-        sentences, sentences_lengths, hypotheses = self._get_beam_hypotheses(inputs, y_true)
-        rnnt_inputs = self._prepare_rnnt_input(sentences, sentences_lengths, features, features_lengths)
+
+        # Calculating rnn-t loss
+        encoder_out = self.encoder(inputs["inputs"], training=True)
+        predictor_out = self.predict_net([inputs["predictions"], inputs["predictions_length"]], training=True)
+        logits = self.joint_net([encoder_out, predictor_out], training=True)
+        logits_length = math_util.get_reduced_length(inputs["inputs_length"], self.time_reduction_factor)
+        rnnt_input = data_util.create_logits(logits, logits_length)
+        rnnt_loss = self.rnnt_loss(y_true, rnnt_input)
+
+        # Calculating mwer loss
+        encoded_length = math_util.get_reduced_length(inputs["inputs_length"], self.time_reduction_factor)
+        sentences, sentences_lengths, hypotheses = self._get_beam_hypotheses(encoder_out, encoded_length, y_true)
+        predictor_inputs, predictor_lengths = self._prepare_rnnt_input(sentences, sentences_lengths)
         ground_truths = data_util.create_labels(sentences, sentences_lengths)
 
-        y_pred = self(rnnt_inputs, training=False)
-        y_pred = self._parse_rnnt_output(y_pred, tf.shape(sentences_lengths))
-        loss = self.loss(y_pred, ground_truths, hypotheses)
+        encoder_out, encoder_out_lengths = self._tile_encoder_out(encoder_out, inputs["inputs_length"])
+        predictor_out = self.predict_net([predictor_inputs, predictor_lengths], training=True)
+        logits = self.joint_net([encoder_out, predictor_out], training=True)
+        logits_length = math_util.get_reduced_length(encoder_out_lengths, self.time_reduction_factor)
+        y_pred = self._parse_rnn_output(logits, logits_length, tf.shape(sentences_lengths))
+        mwer_loss = self.loss(y_pred, ground_truths, hypotheses)
+
+        # Interpolating mwer loss with rnnt loss
+        loss = rnnt_loss + mwer_loss
+
         self._tfasr_metrics["loss"].update_state(loss)
         return {m.name: m.result() for m in self.metrics}
 
-    def _parse_rnnt_output(self,
-                           rnnt_output: Dict[str, tf.Tensor],
-                           batch_beam_dim: tf.Tensor
-                           ) -> Dict[str, tf.Tensor]:
-        logits = rnnt_output["logits"]
+    def _parse_rnn_output(self,
+                          logits: tf.Tensor,
+                          logits_length: tf.Tensor,
+                          # rnnt_output: Dict[str, tf.Tensor],
+                          batch_beam_dim: tf.Tensor
+                          ) -> Dict[str, tf.Tensor]:
         logits_out_dim = tf.concat([batch_beam_dim, tf.shape(logits)[1:]], axis=0)
         logits = tf.reshape(logits, logits_out_dim)
-        logits_length = rnnt_output["logits_length"]
         logits_length = tf.reshape(logits_length, batch_beam_dim)
 
         return data_util.create_logits(logits=logits, logits_length=logits_length)
 
-
     def _prepare_rnnt_input(self,
                             sentences: tf.Tensor,
                             sentences_lengths: tf.Tensor,
-                            features: tf.Tensor,
-                            features_lengths: tf.Tensor
-                            ) -> Dict[str, tf.Tensor]:
+                            ) -> Tuple[tf.Tensor, tf.Tensor]:
         sentences = tf.reshape(sentences, [-1, tf.shape(sentences)[2]])
         sentences_lengths = tf.reshape(sentences_lengths, [-1])
         blank_slice = tf.ones([tf.shape(sentences)[0], 1], dtype=tf.int32) * self.text_featurizer.blank
         rnnt_input_sentences = tf.concat([blank_slice, sentences], axis=1)
-        rnnt_inputs = data_util.create_inputs(features,
-                                              features_lengths,
-                                              rnnt_input_sentences,
-                                              sentences_lengths + tf.constant(1))
 
-        return rnnt_inputs
+        return rnnt_input_sentences, sentences_lengths + tf.constant(1)
 
-    def _copy_input_features(self,
-                             inputs: Dict[str, tf.Tensor],
-                             ) -> Tuple[tf.Tensor, tf.Tensor]:
-        features = inputs["inputs"]
-        features_length = inputs["inputs_length"]
-
+    def _tile_encoder_out(self,
+                          features: tf.Tensor,
+                          features_length: tf.Tensor,
+                          ) -> Tuple[tf.Tensor, tf.Tensor]:
         # copying input features lengths for each prediction
         features_length = tf.expand_dims(features_length, axis=0)
         features_length = tf.transpose(features_length)
@@ -282,22 +314,27 @@ class Transducer(BaseModel):
 
         # copying input features for each prediction
         features_shape = tf.shape(features)
-        features = tf.tile(features, [self._beam_size, 1, 1, 1])
+        features = tf.tile(features, [self._beam_size, 1, 1])
         features = tf.reshape(features, [self._beam_size] + tf.unstack(features_shape))
-        features = tf.transpose(features, [1, 0, 2, 3, 4])
+        features = tf.transpose(features, [1, 0, 2, 3])
         features = tf.reshape(features, [-1] + tf.unstack(features_shape[1:]))
 
         return features, features_length
 
     def _get_beam_hypotheses(self,
-                             inputs: Dict[str, tf.Tensor],
+                             encoded: tf.Tensor,
+                             encoded_length: tf.Tensor,
+                             # inputs: Dict[str, tf.Tensor],
                              y_true: Dict[str, tf.Tensor]
                              ) -> Tuple[tf.Tensor, tf.Tensor, Dict[str, tf.Tensor]]:
         labels_transcriptions = self.text_featurizer.iextract(y_true["labels"])
-        transcriptions, sentences, log_probas = self.recognize_beam(inputs,
-                                                                    return_tokens=True,
-                                                                    return_topk=True,
-                                                                    return_log_probas=True)
+        sentences, log_probas = self.beam.call(encoded=encoded,
+                                               encoded_length=encoded_length,
+                                               return_topk=True,
+                                               parallel_iterations=1)
+
+        with tf.device('/cpu:0'):
+            transcriptions = tf.map_fn(self.text_featurizer.iextract, sentences, fn_output_signature=tf.string)
 
         batch_beam_dims = tf.shape(log_probas)
 
@@ -316,6 +353,7 @@ class Transducer(BaseModel):
 
         sentences_length = tf.reduce_sum(nonblank_tokens, axis=1)
         sentences_length = tf.reshape(sentences_length, batch_beam_dims)
+
         # max_length = tf.reduce_max(sentences_length)
 
         def remove_zeros_and_pad(input: tf.Tensor):
@@ -329,6 +367,7 @@ class Transducer(BaseModel):
         sentences = tf.reshape(sentences, tf.concat([batch_beam_dims, [-1]], axis=0))
 
         return sentences, sentences_length, hypotheses
+
     # -------------------------------- INFERENCES -------------------------------------
 
     def encoder_inference(
@@ -652,8 +691,10 @@ class Transducer(BaseModel):
         predictions, probabilities = self.beam.call(encoded=encoded,
                                                     encoded_length=encoded_length,
                                                     return_topk=return_topk,
-                                                    parallel_iterations=256)
-        transcriptions = tf.map_fn(self.text_featurizer.iextract, predictions, fn_output_signature=tf.string)
+                                                    parallel_iterations=1)
+
+        with tf.device('/cpu:0'):
+            transcriptions = tf.map_fn(self.text_featurizer.iextract, predictions, fn_output_signature=tf.string)
         output = [transcriptions]
         if return_tokens:
             output = output + [predictions]
