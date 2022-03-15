@@ -4,10 +4,10 @@ import tensorflow as tf
 import numpy as np
 import os
 # from tensorflow_asr.mwer.monotonic_rnnt_loss import monotonic_rnnt_loss, MonotonicRnntData
-from tensorflow_asr.mwer.mwer_loss import mwer_loss
+from tensorflow_asr.mwer.mwer_loss import mwer_loss, MWERLossData
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
+tf.config.run_functions_eagerly(True)
 
 def finite_difference_gradient(func: Callable[[tf.Tensor], tf.Tensor], x: tf.Tensor, epsilon: float) -> tf.Tensor:
     """Approximates gradient numerically
@@ -42,7 +42,6 @@ def generate_inputs():
     logits = tf.random.uniform(shape=[batch_size, beam_size, max_t, max_u, vocab_size],
                                    minval=0.1, maxval=0.8, seed=42)
     risk_vals = tf.random.uniform([batch_size, beam_size], minval=0.0, maxval=0.99, seed=42)
-    hypotheses_log_probas = tf.math.log(tf.random.uniform([batch_size, beam_size], minval=0.0, maxval=0.99, seed=42))
 
     labels = []
     labels_length = tf.random.uniform([beam_size], minval=max_u-1, maxval=max_u, dtype=tf.int32)
@@ -56,28 +55,43 @@ def generate_inputs():
     labels = tf.expand_dims(labels, axis=0)
     logits_length = tf.constant([max_t, max_t] * batch_size)
 
-    return logits, risk_vals, hypotheses_log_probas, labels, logits_length, labels_length
+    return logits, risk_vals, labels, logits_length, labels_length
 
 
 class TestMWERLoss(unittest.TestCase):
     def assert_tensors_almost_equal(self, first: tf.Tensor, second: tf.Tensor, places: Optional[int]):
         self.assertAlmostEqual(first=0, second=tf.norm(first - second, ord=np.inf).numpy(), places=places)
 
+    def test_gradient_with_autodifferentiation(self):
+        logits, risk_vals, labels, logits_length, labels_length = generate_inputs()
+
+        with tf.GradientTape() as tape:
+            tape.watch(logits)
+            loss = MWERLossData(logits, labels, logits_length, labels_length, risk_vals).loss_value
+        autograd_grad = tape.gradient(loss, logits)
+
+        with tf.GradientTape() as tape:
+            tape.watch(logits)
+            loss = mwer_loss(logits, risk_vals, labels, logits_length, labels_length)
+        grad = tape.gradient(loss, logits)
+
+        self.assert_tensors_almost_equal(grad, autograd_grad, 1)
+
     def test_gradient_with_finite_difference(self):
-        logits, risk_vals, hypotheses_log_probas, labels, logits_length, labels_length = generate_inputs()
+        logits, risk_vals, labels, logits_length, labels_length = generate_inputs()
 
         def loss_fn(logit):
-            return mwer_loss(tf.expand_dims(logit, 0), risk_vals, hypotheses_log_probas, labels, logits_length, labels_length)
+            return mwer_loss(tf.expand_dims(logit, 0), risk_vals, labels, logits_length, labels_length)
 
         gradient_numerical = finite_difference_gradient(
             func=lambda logits_: tf.vectorized_map(fn=loss_fn, elems=logits_),
             x=logits,
-            epsilon=1e-4
+            epsilon=1e-1
         )
 
         with tf.GradientTape() as tape:
             tape.watch(logits)
-            loss = mwer_loss(logits, risk_vals, hypotheses_log_probas, labels, logits_length, labels_length)
+            loss = mwer_loss(logits, risk_vals, labels, logits_length, labels_length)
 
         gradient_analytic = tape.gradient(loss, sources=logits)
 
