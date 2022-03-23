@@ -12,6 +12,7 @@ flake8==3.9.2
 sounddevice==0.4.3
 pybind11
 fastwer
+cached_properties
 
 # extra=tf2.5-gpu
 tensorflow-gpu~=2.5.1
