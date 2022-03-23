@@ -48,12 +48,15 @@ parser.add_argument("--mxp", default=False, action="store_true", help="Enable mi
 
 parser.add_argument("--pretrained", type=str, default=None, help="Path to pretrained model")
 
+parser.add_argument("--mwer", default=False, action="store_true", help="Whether to use mwer training")
+
 args = parser.parse_args()
 
 tf.config.optimizer.set_experimental_options({"auto_mixed_precision": args.mxp})
 
 strategy = env_util.setup_strategy(args.devices)
 
+from tensorflow_asr.models.transducer.mwer_conformer import MWERConformer
 from tensorflow_asr.configs.config import Config
 from tensorflow_asr.datasets import asr_dataset
 from tensorflow_asr.featurizers import speech_featurizers, text_featurizers
@@ -115,13 +118,17 @@ eval_data_loader = eval_dataset.create(global_batch_size)
 
 with strategy.scope():
     # build model
-    conformer = Conformer(**config.model_config, vocabulary_size=text_featurizer.num_classes)
+    if args.mwer:
+        conformer = MWERConformer(**config.model_config, vocabulary_size=text_featurizer.num_classes)
+    else:
+        conformer = Conformer(**config.model_config, vocabulary_size=text_featurizer.num_classes)
     conformer.add_featurizers(speech_featurizer, text_featurizer)
     conformer.make(
         speech_featurizer.shape,
         prediction_shape=text_featurizer.prepand_shape,
         batch_size=global_batch_size
     )
+
     if args.pretrained:
         conformer.load_weights(args.pretrained, by_name=True, skip_mismatch=True)
     conformer.summary(line_length=100)
@@ -133,6 +140,7 @@ with strategy.scope():
         ),
         **config.learning_config.optimizer_config
     )
+    conformer.load_weights('./predefined_checkpoints/pretrained-subword-conformer/latest.h5', by_name=True)
     conformer.compile(
         optimizer=optimizer,
         experimental_steps_per_execution=args.spx,
@@ -143,7 +151,6 @@ with strategy.scope():
 
 callbacks = [
     tf.keras.callbacks.ModelCheckpoint(**config.learning_config.running_config.checkpoint),
-    tf.keras.callbacks.experimental.BackupAndRestore(config.learning_config.running_config.states_dir),
     tf.keras.callbacks.TensorBoard(**config.learning_config.running_config.tensorboard)
 ]
 

@@ -56,7 +56,7 @@ from tensorflow_asr.configs.config import Config
 from tensorflow_asr.datasets.asr_dataset import ASRSliceDataset
 from tensorflow_asr.featurizers.speech_featurizers import TFSpeechFeaturizer
 from tensorflow_asr.featurizers.text_featurizers import SubwordFeaturizer, SentencePieceFeaturizer, CharFeaturizer
-from tensorflow_asr.models.transducer.conformer import Conformer
+from tensorflow_asr.models.transducer.mwer_conformer import MWERConformer
 from tensorflow_asr.utils import app_util
 
 config = Config(args.config)
@@ -81,7 +81,7 @@ test_dataset = ASRSliceDataset(
 )
 
 # build model
-conformer = Conformer(**config.model_config, vocabulary_size=text_featurizer.num_classes)
+conformer = MWERConformer(**config.model_config, vocabulary_size=text_featurizer.num_classes)
 conformer.make(speech_featurizer.shape)
 conformer.load_weights(args.saved, by_name=True)
 conformer.summary(line_length=100)

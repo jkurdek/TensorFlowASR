@@ -53,11 +53,9 @@ def create_labels(
 
 def create_hypotheses(
         sentences: tf.Tensor,
-        log_probas: tf.Tensor,
         labels: tf.Tensor
 ) -> dict:
     return {
-        "sentences": sentences,
-        "log_probas": log_probas,
-        "labels": labels
+        "text_hypotheses": sentences,
+        "text_labels": labels
     }
