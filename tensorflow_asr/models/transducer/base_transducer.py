@@ -482,11 +482,7 @@ class Transducer(BaseModel):
 
     def recognize_beam(
             self,
-            inputs: Dict[str, tf.Tensor],
-            return_tokens: bool = False,
-            return_topk: bool = False,
-            return_log_probas: bool = False,
-            lm: bool = False,
+            inputs: Dict[str, tf.Tensor]
     ):
         """
         RNN Transducer Beam Search
@@ -501,17 +497,14 @@ class Transducer(BaseModel):
         encoded_length = math_util.get_reduced_length(inputs["inputs_length"], self.time_reduction_factor)
         predictions, probabilities = self.beam.call(encoded=encoded,
                                                     encoded_length=encoded_length,
-                                                    return_topk=return_topk,
+                                                    return_topk=False,
                                                     parallel_iterations=1)
 
         with tf.device('/cpu:0'):
             transcriptions = tf.map_fn(self.text_featurizer.iextract, predictions, fn_output_signature=tf.string)
-        output = [transcriptions]
-        if return_tokens:
-            output = output + [predictions]
-        if return_log_probas:
-            output = output + [probabilities]
-
+            
+        output = tf.reshape(transcriptions, shape=[-1])
+        
         return output
 
     # -------------------------------- TFLITE -------------------------------------
