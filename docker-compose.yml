@@ -8,13 +8,16 @@ services:
         using_gpu: "true"
         install_rnnt_loss: "true"
     tty: true
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     ipc: "host"
     ports:
       - 6006:6006
-    working_dir: /app
-    volumes:
-      - ./:/app
