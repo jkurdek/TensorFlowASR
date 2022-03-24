@@ -9,40 +9,50 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 def finite_difference_gradient(func: Callable[[tf.Tensor], tf.Tensor], x: tf.Tensor, epsilon: float) -> tf.Tensor:
-    """Approximates gradient numerically
+    """Approximates gradient numerically using finite difference gradient.
 
-    Source: https://github.com/alexeytochin/tf_seq2seq_losses/
+    Inspired by @alexeytochin seq2seq losses tests (github.com/alexeytochin/tf_seq2seq_losses/).
     """
     input_shape = tf.shape(x)[1:]
-    input_rank = input_shape.shape[0]
     dim = tf.reduce_prod(input_shape)
-    dx = tf.reshape(tf.eye(dim, dtype=x.dtype), shape=tf.concat([tf.constant([1]), tf.reshape(dim, [1]), input_shape], axis=0))
+    dx = tf.reshape(
+        tf.eye(dim, dtype=x.dtype), shape=tf.concat([tf.constant([1]), tf.reshape(dim, [1]), input_shape], axis=0)
+    )
     # shape = [1, dim] + input_shape
 
     pre_x1 = tf.expand_dims(x, 1) + epsilon * dx
     # shape = [batch_size, dim] + input_shape
-    x1 = tf.reshape(pre_x1, shape=tf.concat([tf.constant([-1], dtype=tf.int32), input_shape], axis=0))
-    # shape = [batch_size * dim] + input_shape
-    x0 = tf.tile(x, multiples=[dim] + [1] * input_rank)
+
+    x1 = tf.experimental.numpy.swapaxes(pre_x1, 0, 1)
+    # shape = [dim, batch_size] + input_shape
+
+    x0 = tf.expand_dims(x, axis=0)
 
     pre_derivative = (func(x1) - func(x0)) / epsilon
-    # shape = [batch_size * dim]
-    derivative = tf.reshape(pre_derivative, shape=tf.concat([tf.constant([-1]), input_shape], axis=0))
+    # shape = [dim, batch_size]
+    pre_derivative = tf.transpose(pre_derivative)
+    # shape = [batch_size, dim]
+    derivative = tf.reshape(pre_derivative, shape=tf.shape(x))
     # shape = [batch_size] + input_shape
     return derivative
 
 
-def generate_inputs():
-    labels_len = tf.convert_to_tensor([6])
-    inputs_len = tf.convert_to_tensor([10])
-    vocab_size = 4
-    batch_size = 1
-    labels = tf.convert_to_tensor([[2, 1, 3, 2, 3, 2, 0, 0]])
+def generate_inputs(batch_size: int, max_t: int, max_u: int, vocab_size: int):
 
-    max_u = 8
-    max_t = 12
+    labels_len = tf.random.uniform(shape=[batch_size - 1], minval=1, maxval=max_u, dtype=tf.int32)
+    labels_len = tf.concat([labels_len, tf.constant(max_u, shape=[1])], axis=0)
 
-    logits = tf.random.uniform(shape=[batch_size, max_t, max_u + 1, vocab_size], minval=0.1, maxval=0.8, seed=42)
+    inputs_len = tf.random.uniform(shape=[batch_size - 1], minval=1, maxval=max_t, dtype=tf.int32)
+    inputs_len = tf.concat([inputs_len, tf.constant(max_t, shape=[1])], axis=0)
+
+    # Monotonic loss requires inputs_len >= labels_len
+    inputs_len = tf.math.maximum(inputs_len, labels_len + 1)
+
+    labels = tf.random.uniform(
+        shape=[batch_size, max_u], minval=1, maxval=vocab_size + 1, dtype=tf.int32
+    ) * tf.sequence_mask(labels_len, maxlen=max_u, dtype=tf.int32)
+
+    logits = tf.random.uniform(shape=[batch_size, max_t, max_u + 1, vocab_size + 1], minval=0.0, maxval=0.99, seed=42)
     return logits, labels, labels_len, inputs_len
 
 
@@ -53,32 +63,35 @@ class TestRnntLoss(unittest.TestCase):
     def test_alpha_beta(self):
         """Checks whether bottom left element of beta == top right element of alpha * prob_blank
 
-        From the definition of forward bacward variables the loss should be equal to
+        From the definition of forward backward variables the loss should be equal to
         the bottom left element of beta and top right element of alpha multiplied by the probability to output blank.
         """
-        logits, labels, labels_len, inputs_len = generate_inputs()
+        logits, labels, labels_len, inputs_len = generate_inputs(batch_size=2, max_t=4, max_u=3, vocab_size=3)
         loss_data = MonotonicRnntData(logits, labels, inputs_len, labels_len)
 
         beta_final = loss_data.log_loss
-        alpha_final = (
-            loss_data.alpha[:, inputs_len[0] - 1, labels_len[0]] + loss_data.blank_probs[:, inputs_len[0] - 1, labels_len[0]]
+
+        idx = tf.stack([inputs_len - 1, labels_len], axis=1)
+        alpha_final = tf.gather_nd(loss_data.alpha, idx, batch_dims=1) + tf.gather_nd(
+            loss_data.blank_probs, idx, batch_dims=1
         )
 
         self.assert_tensors_almost_equal(beta_final, alpha_final, 3)
 
     def test_gradient_with_finite_difference(self):
-        logits, labels, labels_len, inputs_len = generate_inputs()
+
+        logits, labels, labels_len, inputs_len = generate_inputs(batch_size=2, max_t=4, max_u=3, vocab_size=3)
 
         def loss_fn(logit):
-            return tf.reduce_sum(monotonic_rnnt_loss(tf.expand_dims(logit, 0), labels, labels_len, inputs_len))
+            return monotonic_rnnt_loss(logit, labels, labels_len, inputs_len)
 
         gradient_numerical = finite_difference_gradient(
-            func=lambda logits_: tf.vectorized_map(fn=loss_fn, elems=logits_), x=logits, epsilon=1e-2
+            func=lambda logits_: tf.map_fn(fn=loss_fn, elems=logits_), x=logits, epsilon=1e-2
         )
 
         with tf.GradientTape() as tape:
             tape.watch([logits])
-            loss = loss_fn(logits[0])
+            loss = loss_fn(logits)
 
         gradient_analytic = tape.gradient(loss, sources=logits)
 

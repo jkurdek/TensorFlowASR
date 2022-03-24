@@ -1,3 +1,7 @@
+"""Implementation of the Monotonic RNNT Loss "Monotonic Recurrent Neural Network Transducer and Decoding Strategies", Tripathi et. al.
+
+Inspired by @alexeytochin ctc loss implementation (github.com/alexeytochin/tf_seq2seq_losses/)
+"""
 from functools import cached_property
 import tensorflow as tf
 
