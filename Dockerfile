@@ -18,6 +18,6 @@ WORKDIR /app
 
 RUN pip install -r requirements-pre.txt && pip install -r requirements.txt
 
-RUN wget https://www.openslr.org/resources/12/dev-clean.tar.gz
-RUN tar -xzvf dev-clean.tar.gz 
-RUN python ./scripts/create_librispeech_trans.py -d ./LibriSpeech /data/LibriSpeech/test_transcriptions/test.tsv
+RUN wget https://www.openslr.org/resources/12/test-clean.tar.gz
+RUN tar -xzvf test-clean.tar.gz
+RUN python ./scripts/create_librispeech_trans.py -d LibriSpeech/test-clean LibriSpeech/test_transcriptions/test.tsv
