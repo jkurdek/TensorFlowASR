@@ -74,7 +74,7 @@ learning_config:
           num_masks: 1
           mask_factor: 27
     data_paths:
-      - ./LibriSpeech/test_transcriptions/test.tsv
+      - ./LibriSpeech/test_transcriptions/train.tsv
     tfrecords_dir: null
     shuffle: True
     cache: False
@@ -96,7 +96,7 @@ learning_config:
   test_dataset_config:
     use_tf: True
     data_paths:
-      - ./LibriSpeech/test_transcriptions/train.tsv
+      - ./LibriSpeech/test_transcriptions/test.tsv
     tfrecords_dir: null
     shuffle: False
     cache: False

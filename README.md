@@ -31,7 +31,7 @@ python ./scripts/create_librispeech_trans.py -d ./LibriSpeech/test-clean /data/L
 ./examples/conformer/config.yml
 ```
 
-### Docker Installation:
+## Docker Installation:
 
 For convenience we provide a way to access the code using Docker. The guide assumes user has installed docker, docker-compose and nvidia-docker (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#install-guide).
 
