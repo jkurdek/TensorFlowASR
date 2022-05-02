@@ -94,3 +94,15 @@ python ./examples/conformer/test.py --config ./examples/conformer/config.yml \
                                     --output test_result.tsv \
                                     --bs 1
 ```
+
+## Inference demonstration:
+To run a demonstration on the actual flac file, from the root directory you need to run the command:
+```
+python examples/demonstration/conformer.py --config ./examples/conformer/config.yml \
+                                           --saved predefined_checkpoints/weights.hdf5 \
+                                           --sentence_piece \
+                                           --subwords ./vocabularies/librispeech/spm_512 \
+                                           --beam_width 1 \
+                                           examples/demonstration/wavs/1089-134691-0000.flac                                            
+```
+This script demonstrates the usage of the model on real world data.
