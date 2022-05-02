@@ -11,7 +11,7 @@ black==21.7b0
 flake8==3.9.2
 sounddevice==0.4.3
 fastwer
-cached_properties
+cached-property
 
 # extra=tf2.5-gpu
 tensorflow-gpu~=2.5.1
