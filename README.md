@@ -17,8 +17,11 @@ wget https://www.openslr.org/resources/12/test-clean.tar.gz
 
 tar -xzvf test-clean.tar.gz 
 ```
-
-3. Create transcriptions (.tsv files) for downloaded datasets.
+3. Add working directory to PYTHONPATH.
+```
+export PYTHONPATH="${PYTHONPATH}:${PWD}" 
+```
+4. Create transcriptions (.tsv files) for downloaded datasets.
 ```
 python ./scripts/create_librispeech_trans.py -d <extracted_dataset_dir> <target_dir>
 ```
