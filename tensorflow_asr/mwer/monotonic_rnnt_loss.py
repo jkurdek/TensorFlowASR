@@ -2,7 +2,7 @@
 
 Inspired by @alexeytochin ctc loss implementation (github.com/alexeytochin/tf_seq2seq_losses/)
 """
-from functools import cached_property
+from cached_property import cached_property
 import tensorflow as tf
 
 logger = tf.get_logger()

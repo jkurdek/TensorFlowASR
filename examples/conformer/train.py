@@ -140,7 +140,6 @@ with strategy.scope():
         ),
         **config.learning_config.optimizer_config
     )
-    conformer.load_weights('./predefined_checkpoints/pretrained-subword-conformer/latest.h5', by_name=True)
     conformer.compile(
         optimizer=optimizer,
         experimental_steps_per_execution=args.spx,
