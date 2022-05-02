@@ -1,9 +1,9 @@
-# Efficient Minum Word Error Rate Training for Attention-Based models
+# Efficient Minimum Word Error Rate Training for Attention-Based models
 
 The repository contains implementation of Minimum Word Error Rate (MWER) Training based on Monotonic RNN-T Loss for audio transduction. The solution is based on the TensorFlowASR Library (https://github.com/TensorSpeech/TensorFlowASR).
 
 ## Installation:
-***NOTE***: We assume the user has sucesfully installed and configured Python (and Docker in case of accessing the codee via Docker) prior to the solution installation.
+***NOTE***: We assume the user has successfully installed and configured Python (and Docker in case of accessing the code via Docker) prior to the solution installation.
 
 ### Manual installation:
 1. Install requirements
@@ -23,7 +23,7 @@ tar -xzvf test-clean.tar.gz
 python ./scripts/create_librispeech_trans.py -d <extracted_dataset_dir> <target_dir>
 ```
 ```
-python ./scripts/create_librispeech_trans.py -d ./LibriSpeech/test-clean /data/LibriSpeech/test_transcriptions/test.tsv
+python ./scripts/create_librispeech_trans.py -d ./LibriSpeech/test-clean ./LibriSpeech/test_transcriptions/test.tsv
 ```
 
 5. Provide paths to the generated transcriptions in the config file ('data_path' in train, eval and test subconfigs)
